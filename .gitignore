@@ -1,9 +1,8 @@
 # Don't track content of these folders
 .git/
-.venv/
 .vscode/
-data/
 .idea/
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
