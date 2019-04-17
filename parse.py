@@ -52,10 +52,6 @@ if __name__ == "__main__":
     lng_name = 'GPS_Lon'
     lat_index = signal_index(lat_name, f)
     lng_index = signal_index(lng_name, f)
-    # with MDF(f) as mdf_file:
-        # print(mdf_file.get_group(lat_index))
-        # print(mdf_file.get_group(lng_index)[lng_name])
-        # values = mdf_file.get_group(lng_index)[lng_name]
     lat_timestamps, lat_values = signal_values([lat_name], f)
     lng_timestamps, lng_values = signal_values([lng_name], f)
     print(len(lat_values),len(lng_values))
