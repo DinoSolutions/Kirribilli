@@ -13,7 +13,7 @@ def file_selector():
 def file_version(filename):
     with MDF(filename) as mdf_file:
         print(mdf_file.version)  # pylint: disable=no-member
-    return mdf_file.version
+    return mdf_file.version  # pylint: disable=no-member
 
 
 def list_signals(filename):
@@ -44,14 +44,17 @@ def signal_values(signalname, filename):
         return channel[0].timestamps, channel[0].samples
 
 
-if __name__ == "__main__":
+def main():
     f = file_selector()
     # file_version(f)
-    list_signals(f)
+    # list_signals(f)
     lat_name = 'GPS_Lat'
     lng_name = 'GPS_Lon'
-    lat_index = signal_index(lat_name, f)
-    lng_index = signal_index(lng_name, f)
+    # lat_index = signal_index(lat_name, f)
+    # lng_index = signal_index(lng_name, f)
     lat_timestamps, lat_values = signal_values([lat_name], f)
     lng_timestamps, lng_values = signal_values([lng_name], f)
     print(len(lat_values),len(lng_values))
+
+if __name__ == "__main__":
+    main()
