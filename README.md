@@ -1,6 +1,7 @@
 # Kirribilli
 
-## Prerequisites
+<b>Prerequisites</b>
+
 Valid up to current development progress, new dependencies may be added.
 
 ```
