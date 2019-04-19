@@ -1,13 +1,14 @@
-from asammdf import MDF, Signal
 import pandas
+from asammdf import MDF, Signal
+from prototype import (
+    TEST_FILES,
+    SIGNALS,
+)
 
 
 def file_selector():
-    file_acura = 'data/Acura_M52_NB_Comfort.MF4'
-    # file_jag_east = 'data/Jag_Huron_EB.MF4'
-    # file_jag_west = 'data/Jag_Huron_WB.MF4'
-    # file_niro = 'data/Niro_20kph.dat'
-    return file_acura
+    input_file = ''  # dummy function for now
+    return input_file
 
 
 def file_version(filename):
@@ -16,7 +17,7 @@ def file_version(filename):
     return mdf_file.version  # pylint: disable=no-member
 
 
-def list_signals(filename):
+def list_all_signals(filename):
     with MDF(filename) as mdf_file:
         counter = 0
         for channel in mdf_file.iter_channels():
@@ -38,23 +39,26 @@ def signal_index(signalname, filename):
         return -1  # Error: signalname not found in MDF file
 
 
-def signal_values(signalname, filename):
+def signal_values(signalnames, filename):
     with MDF(filename) as mdf_file:
-        channel = mdf_file.select(signalname)
-        return channel[0].timestamps, channel[0].samples
+        channels = mdf_file.select(signalnames, dataframe=False)
+        return channels
 
 
 def main():
-    f = file_selector()
+    # f = file_selector()
+    f = TEST_FILES[0]
     # file_version(f)
-    # list_signals(f)
-    lat_name = 'GPS_Lat'
-    lng_name = 'GPS_Lon'
+    # list_all_signals(f)
+    # lat_name = 'GPS_Lat'
+    # lng_name = 'GPS_Lon'
     # lat_index = signal_index(lat_name, f)
     # lng_index = signal_index(lng_name, f)
-    lat_timestamps, lat_values = signal_values([lat_name], f)
-    lng_timestamps, lng_values = signal_values([lng_name], f)
-    print(len(lat_values),len(lng_values))
+    # lat_timestamps, lat_values = signal_values([lat_name], f)
+    # lng_timestamps, lng_values = signal_values([lng_name], f)
+    channels = signal_values(SIGNALS, f)
+    print(channels)
+
 
 if __name__ == "__main__":
     main()
