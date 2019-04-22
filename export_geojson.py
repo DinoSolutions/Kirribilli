@@ -1,3 +1,4 @@
+import geojson
 from parse import data_scrub
 from prototype import (
     TEST_FILES,
@@ -10,9 +11,9 @@ gps_time, gps_points, gps_boundaries = data_scrub(TEST_FILES[0], SLOW_SIGNALS, S
 track = geojson.LineString(gps_points)
 
 features = list()
-features.append(geojson.features(geometry=LineString, properties={"Test Name": "Huron River Dr"}))
+features.append(geojson.Features(geometry=LineString, properties={"Test Name": "Huron River Dr"}))
 
-feature_collection = geojson.feature_collection(features)
+feature_collection = geojson.FeatureCollection(features)
 
 with open('test.geojson', 'w') as output:
     geojson.dump(feature_collection, output)
