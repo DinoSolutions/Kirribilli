@@ -54,19 +54,20 @@ def data_scrub(filename, slow_signals, fast_signals, slow_freq=1, fast_freq=0.01
         mdf_reduce = mdf_file.filter(fast_signals)
         mdf_fast = mdf_reduce.resample(fast_freq).select(fast_signals, raw=False, dataframe=False)
         mdf_slow = mdf_reduce.resample(slow_freq).select(slow_signals, raw=False, dataframe=False)
-        # TODO: Get signal timestamps and samples as numpy arrays
-        for sig in mdf_fast:
-            print(sig.name, sig.timestamps[0:3], sig.samples[0:3])
-        print('\n---SPLIT---\n')
-        for sig in mdf_slow:
-            print(sig.name, sig.timestamps[0:3], sig.samples[0:3])
+        # # TODO: Get signal timestamps and samples as numpy arrays
+        # for sig in mdf_fast:
+        #     print(sig.name, sig.timestamps[0:3], sig.samples[0:3])
+        # print('\n---SPLIT---\n')
+        # for sig in mdf_slow:
+        #     print(sig.name, sig.timestamps[0:3], sig.samples[0:3])
         # TODO: Construct GPS coordinates
         lat_index = slow_signals.index('GPS_Lat')
         lng_index = slow_signals.index('GPS_Lon')
         speed_index = slow_signals.index('GPS_Velocity')
         lat_value = mdf_slow[lat_index].samples
         lng_value = mdf_slow[lng_index].samples
-        gps_points = numpy.array([lng_value, lat_value]).transpose()  # for GeoJSON: [longitude, latitude]
+        # gps_points = numpy.array([lng_value, lat_value]).transpose()  # for GeoJSON: [longitude, latitude]
+        gps_points = list(zip(lng_value, lat_value))
         gps_time = numpy.array(mdf_slow[speed_index].timestamps)
         lat1 = numpy.min(mdf_slow[lat_index].samples)
         lat2 = numpy.max(mdf_slow[lat_index].samples)
