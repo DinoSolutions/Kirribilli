@@ -54,12 +54,6 @@ def data_scrub(filename, slow_signals, fast_signals, slow_freq=1, fast_freq=0.01
         mdf_reduce = mdf_file.filter(fast_signals)
         mdf_fast = mdf_reduce.resample(fast_freq).select(fast_signals, raw=False, dataframe=False)
         mdf_slow = mdf_reduce.resample(slow_freq).select(slow_signals, raw=False, dataframe=False)
-        # # TODO: Get signal timestamps and samples as numpy arrays
-        # for sig in mdf_fast:
-        #     print(sig.name, sig.timestamps[0:3], sig.samples[0:3])
-        # print('\n---SPLIT---\n')
-        # for sig in mdf_slow:
-        #     print(sig.name, sig.timestamps[0:3], sig.samples[0:3])
         # TODO: Construct GPS coordinates
         lat_index = slow_signals.index('GPS_Lat')
         lng_index = slow_signals.index('GPS_Lon')
@@ -73,16 +67,30 @@ def data_scrub(filename, slow_signals, fast_signals, slow_freq=1, fast_freq=0.01
         lat2 = numpy.max(mdf_slow[lat_index].samples)
         lng1 = numpy.min(mdf_slow[lng_index].samples)
         lng2 = numpy.max(mdf_slow[lng_index].samples)
-        bound_s = lat1 - (lat2 - lat1) * 0.05
-        bound_n = lat2 + (lat2 - lat1) * 0.05
-        bound_w = lng1 - (lng2 - lng1) * 0.05
-        bound_e = lng2 + (lng2 - lng1) * 0.05
-        lat_c = (lat2 - lat1) / 2
-        lng_c = (lng2 - lng1) / 2
+        clat, clng, zoom = map_init(lat2, lat1, lng2, lng1, 1.05)
         # gps_boundaries = numpy.array([bound_s, bound_n, bound_w, bound_e, lat_c, lng_c])
-        Boundaries = namedtuple('Boundaries', ['s', 'n', 'w', 'e', 'lat_c', 'lng_c'])
-        gps_boundaries = Boundaries(s=bound_s, n=bound_n, w=bound_w, e=bound_e, lat_c=lat_c, lng_c=lng_c)
-        return gps_time, gps_points, gps_boundaries
+        Boundaries = namedtuple('Boundaries', ['clat', 'clng', 'zoom'])
+        map_settings = Boundaries(clat=clat, clng=clng, zoom=zoom)
+        return gps_time, gps_points, map_settings
+
+
+def map_init(lat_s, lat_n, lng_w, lng_e, bound_factor):
+    import math
+    clat = (lat_n + lat_s) / 2
+    clng = (lng_e + lng_w) / 2
+    dlat = math.radians(lat_n - lat_s)
+    dlng = math.radians(lng_e - lng_w)
+    # Haversine formula: calculate the great-circle distance between two points
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat_s) * math.cos(lat_n) * math.sin(dlng / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    # Mean radius of earth in km: 6371
+    great_circle_distance = c * 6371
+    # Minimum map tile size 256 x 256 pixels
+    zoom = math.floor(8 - math.log(bound_factor * great_circle_distance / math.sqrt(2 * 256 * 256))) / math.log(2)
+    # Convert zoom level from float to integer
+    zoom = int(zoom)
+    print(great_circle_distance, clat, clng, zoom)
+    return clat, clng, zoom
 
 
 def main():
@@ -91,17 +99,6 @@ def main():
     # file_version(f)
     # list_all_signals(f)
 
-    # -- TO DELETE:
-    # lat_name = 'GPS_Lat'
-    # lng_name = 'GPS_Lon'
-    # lat_index = get_signal_index(lat_name, f)
-    # lng_index = get_signal_index(lng_name, f)
-    # --
-
-    # lat_timestamps, lat_values = signal_values([lat_name], f)
-    # lng_timestamps, lng_values = signal_values([lng_name], f)
-    # channels = signal_values(SIGNALS, f)
-    # print(channels)
     gps_data = data_scrub(f, SLOW_SIGNALS, SIGNALS, slow_freq=1, fast_freq=0.01)
     return
 
