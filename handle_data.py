@@ -27,3 +27,9 @@ cur.execute("""
 """)
 conn.commit()
 conn.close()
+
+try:
+    # connection operations
+finally:
+    conn.close()
+
