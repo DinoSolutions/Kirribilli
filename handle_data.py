@@ -30,6 +30,7 @@ conn.close()
 
 try:
     # connection operations
+    print("Success!")
 finally:
     conn.close()
 
