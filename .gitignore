@@ -4,6 +4,9 @@
 .idea/
 data/
 
+# Config file may contain passwords
+config*.*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
