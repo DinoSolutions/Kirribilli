@@ -1,5 +1,6 @@
 # import pandas
 import numpy
+import json
 from asammdf import MDF, Signal
 from prototype import (
     TEST_FILES,
@@ -9,15 +10,22 @@ from prototype import (
 from collections import namedtuple
 
 
+def read_config(config):
+    with open(config) as config_file:
+        cfg = json.load(config_file)
+    return cfg
+
+
 def file_selector():
-    input_file = ''  # dummy function for now
-    return input_file
+    filename = TEST_FILES[0]
+    print('\nInput Filename: %s' % filename)
+    return filename
 
 
 def file_version(filename):
     with MDF(filename) as mdf_file:
-        print(mdf_file.version)  # pylint: disable=no-member
-    return mdf_file.version  # pylint: disable=no-member
+        print('\nMDF Version: %s' % mdf_file.version)
+        return mdf_file.version
 
 
 def list_all_signals(filename):
@@ -74,6 +82,26 @@ def data_scrub(filename, slow_signals, fast_signals, slow_freq=1, fast_freq=0.01
         return gps_time, gps_points, map_settings
 
 
+def data_prep(filename, cfg, freq=0.01):
+    signals_normal = list()
+    signals_raw = list()
+    for key, val in cfg.items():
+        signals_normal.append(key)
+        signals_raw.append(val)
+    with MDF(filename) as mdf_file:
+        mdf_reduce = mdf_file.filter(signals_raw)
+        mdf_output = mdf_reduce.resample(freq)
+        # Rename <Raw Signal Names> to <Normalized Signal Names>
+        counter = 0
+        for channel in mdf_output.iter_channels():
+            channel.name = signals_normal[counter]
+            print(counter, channel.name, signals_normal[counter])
+            counter += 1
+        signals_output = mdf_output.select(signals_normal)
+        print(signals_output)
+    return
+
+
 def map_init(lat_s, lat_n, lng_w, lng_e, bound_factor):
     import math
     clat = (lat_n + lat_s) / 2
@@ -94,12 +122,13 @@ def map_init(lat_s, lat_n, lng_w, lng_e, bound_factor):
 
 
 def main():
-    # f = file_selector()
-    f = TEST_FILES[0]
-    # file_version(f)
-    # list_all_signals(f)
+    filename = file_selector()
+    file_version(filename)
+    cfg = read_config('config_signals.json')
+    data_prep(filename, cfg, freq=0.01)
+    # list_all_signals(filename)
 
-    gps_data = data_scrub(f, SLOW_SIGNALS, SIGNALS, slow_freq=1, fast_freq=0.01)
+    # gps_data = data_scrub(f, SLOW_SIGNALS, SIGNALS, slow_freq=1, fast_freq=0.01)
     return
 
 
