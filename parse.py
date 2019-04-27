@@ -95,11 +95,11 @@ def data_prep(filename, cfg, freq=0.01):
         counter = 0
         for channel in mdf_output.iter_channels():
             channel.name = signals_normal[counter]
-            print(counter, channel.name, signals_normal[counter])
+            # print(counter, channel.name, signals_normal[counter])
             counter += 1
-        signals_output = mdf_output.select(signals_normal)
-        print(signals_output)
-    return
+        signals_output = mdf_output.select(signals_raw)
+        # print(len(signals_output))
+    return signals_output, signals_normal, signals_raw
 
 
 def map_init(lat_s, lat_n, lng_w, lng_e, bound_factor):
