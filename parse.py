@@ -83,23 +83,28 @@ def data_scrub(filename, slow_signals, fast_signals, slow_freq=1, fast_freq=0.01
 
 
 def data_prep(filename, cfg, freq=0.01):
-    signals_normal = list()
-    signals_raw = list()
-    for key, val in cfg.items():
-        signals_normal.append(key)
-        signals_raw.append(val)
+    signals_normal = list(cfg.keys())
+    signals_raw = list(cfg.values())
     with MDF(filename) as mdf_file:
         mdf_reduce = mdf_file.filter(signals_raw)
-        mdf_output = mdf_reduce.resample(freq)
+        mdf_output = mdf_reduce.resample(raster=freq)
         # Rename <Raw Signal Names> to <Normalized Signal Names>
-        counter = 0
-        for channel in mdf_output.iter_channels():
-            channel.name = signals_normal[counter]
-            # print(counter, channel.name, signals_normal[counter])
-            counter += 1
-        signals_output = mdf_output.select(signals_raw)
-        # print(len(signals_output))
-    return signals_output, signals_normal, signals_raw
+        # counter = 0
+        # for group in mdf_output.groups:
+        #     for channel in group.channels[1::2]:  # Odd channels are "t"; Even channels are signals
+        #         # print(counter, channel.name, signals_normal[counter])
+        #         channel.name = signals_normal[counter]
+        #         counter += 1
+        signals = mdf_output.select(signals_raw, raw=True, dataframe=False)
+        return signals, signals_normal, signals_raw
+
+
+def data_type(signals, norm, raw):
+    for signal in signals:
+        sample_phy = signal.physical()[0]
+        sample_raw = signal.samples[0]
+        print(signal.name, signal.conversion)
+    return
 
 
 def map_init(lat_s, lat_n, lng_w, lng_e, bound_factor):
@@ -125,7 +130,8 @@ def main():
     filename = file_selector()
     file_version(filename)
     cfg = read_config('config_signals.json')
-    data_prep(filename, cfg, freq=0.01)
+    signals, norm, raw = data_prep(filename, cfg, freq=0.01)
+    data_type(signals, norm, raw)
     # list_all_signals(filename)
 
     # gps_data = data_scrub(f, SLOW_SIGNALS, SIGNALS, slow_freq=1, fast_freq=0.01)
