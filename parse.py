@@ -62,7 +62,7 @@ def data_scrub(filename, slow_signals, fast_signals, slow_freq=1, fast_freq=0.01
         mdf_reduce = mdf_file.filter(fast_signals)
         mdf_fast = mdf_reduce.resample(fast_freq).select(fast_signals, raw=False, dataframe=False)
         mdf_slow = mdf_reduce.resample(slow_freq).select(slow_signals, raw=False, dataframe=False)
-        # TODO: Construct GPS coordinates
+        # Construct GPS coordinates
         lat_index = slow_signals.index('GPS_Lat')
         lng_index = slow_signals.index('GPS_Lon')
         speed_index = slow_signals.index('GPS_Velocity')
@@ -95,16 +95,27 @@ def data_prep(filename, cfg, freq=0.01):
         #         # print(counter, channel.name, signals_normal[counter])
         #         channel.name = signals_normal[counter]
         #         counter += 1
-        signals = mdf_output.select(signals_raw, raw=True, dataframe=False)
-        return signals, signals_normal, signals_raw
+        signals = mdf_output.select(signals_raw, raw=False, dataframe=False)
+        sql_dtype = data_type(signals)
+        # Generate timestamps
+        signal_t = signals[0].timestamps
+        return signals, sql_dtype, signals_normal, signals_raw, signal_t
 
 
-def data_type(signals, norm, raw):
+def data_type(signals):
+    conv = {
+        "<class 'numpy.uint8'>":      'int',
+        "<class 'numpy.uint16'>":     'int',
+        "<class 'numpy.uint32'>":     'int',
+        "<class 'numpy.float64'>":    'double',
+        "<class 'numpy.bytes_'>":     'text',
+    }
+    sql_dtype = list()
     for signal in signals:
-        sample_phy = signal.physical()[0]
-        sample_raw = signal.samples[0]
-        print(signal.name, signal.conversion)
-    return
+        sig_dtype = str(type(signal.samples[0]))
+        sql_dtype.append(conv[sig_dtype])
+        # print(sig_dtype, conv[sig_dtype])
+    return sql_dtype
 
 
 def map_init(lat_s, lat_n, lng_w, lng_e, bound_factor):
@@ -129,12 +140,9 @@ def map_init(lat_s, lat_n, lng_w, lng_e, bound_factor):
 def main():
     filename = file_selector()
     file_version(filename)
-    cfg = read_config('config_signals.json')
-    signals, norm, raw = data_prep(filename, cfg, freq=0.01)
-    data_type(signals, norm, raw)
     # list_all_signals(filename)
-
-    # gps_data = data_scrub(f, SLOW_SIGNALS, SIGNALS, slow_freq=1, fast_freq=0.01)
+    cfg = read_config('config_signals.json')
+    signals, dtype, norm, raw, t = data_prep(filename, cfg, freq=0.01)
     return
 
 
