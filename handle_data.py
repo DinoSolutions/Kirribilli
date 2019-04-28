@@ -54,11 +54,18 @@ def db_val_table_exists(conn, table):
     return bool(cur.fetchone()[0])  # True when table exists; False when table doesn't exist
 
 
-def db_create_columns(conn, table, signals, norm):
-    # TODO: determine the type of each signal
-
+def db_create_columns(conn, table, signals, dtype, norm, timestamps):
     cur = conn.cursor()
     if db_val_table_exists(conn, table):
+        # First column - Timestamps
+        add_timestamps = psycopg2.sql.SQL("""
+            ALTER TABLE {}
+            ADD Time NUMERIC(8,3) NOT NULL PRIMARY KEY;
+        """).format(psycopg2.sql.Identifier(table))  # 86400.000 seconds is 24-hour long measurement
+        print(add_timestamps.as_string(conn))
+        cur.execute(add_timestamps)
+        conn.commit()
+        # TODO: Other columns for data
         add_column = psycopg2.sql.SQL("""
             ALTER TABLE {}
             ADD {} {};
@@ -73,12 +80,11 @@ def main():
     file_version(filename)
     cfg_signals = read_config('config_signals.json')
     cfg_env = read_config('config_env.json')
-    # signals, norm, raw = data_prep(filename, cfg_signals, freq=0.01)
+    signals, dtype, norm, raw, t = data_prep(filename, cfg_signals, freq=0.01)
     conn = db_connection(cfg_env)
-    # SQL Test function
     # sql_test(conn)
     db_create_table(conn, filename)
-    db_create_columns(conn, filename, signals, norm, raw)
+    db_create_columns(conn, filename, signals, dtype, norm, t)
     db_disconnect(conn)
 
     return
