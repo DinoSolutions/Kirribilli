@@ -104,10 +104,10 @@ def data_prep(filename, cfg, freq=0.01):
 
 def data_type(signals):
     conv = {
-        "<class 'numpy.uint8'>":      'int',
-        "<class 'numpy.uint16'>":     'int',
-        "<class 'numpy.uint32'>":     'int',
-        "<class 'numpy.float64'>":    'double',
+        "<class 'numpy.uint8'>":      'int8',
+        "<class 'numpy.uint16'>":     'int8',
+        "<class 'numpy.uint32'>":     'int8',
+        "<class 'numpy.float64'>":    'float8',
         "<class 'numpy.bytes_'>":     'text',
     }
     sql_dtype = list()
