@@ -1,6 +1,6 @@
 import sys
 import geojson
-from parse import data_scrub
+from backend_file_functions import data_scrub
 from prototype import (
     TEST_FILES,
     SLOW_SIGNALS,

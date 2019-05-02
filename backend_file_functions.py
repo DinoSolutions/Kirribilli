@@ -4,7 +4,6 @@ import re
 import numpy
 import json
 from collections import namedtuple
-from timeit import timeit
 
 from asammdf import MDF, Signal
 
