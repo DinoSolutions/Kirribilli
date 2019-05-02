@@ -1,7 +1,10 @@
-# import pandas
+from os import listdir
+from os.path import isfile, join
+import re
 import numpy
 import json
 from collections import namedtuple
+from timeit import timeit
 
 from asammdf import MDF, Signal
 
@@ -22,7 +25,7 @@ def read_config(config):
 def file_selector():
     filename = TEST_FILES[0]
     print('Input Filename: %s' % filename)
-    return filename
+    return [filename]
 
 
 def file_version(filename):
@@ -41,22 +44,15 @@ def list_all_signals(filename):
     return counter
 
 
-def get_signal_index(signalname, filename):
+def get_signal_index(filename, signal_name):
     with MDF(filename) as mdf_file:
         counter = 0
         for channel in mdf_file.iter_channels():
-            if channel.name == signalname:
+            if channel.name == signal_name:
                 return counter
             else:
                 counter += 1
-        return -1  # Error: signalname not found in MDF file
-
-
-def signal_values(signals, filename):
-    with MDF(filename) as mdf_file:
-        channels = mdf_file.select(signals, dataframe=False)
-        # TODO: Research pandas dataframe method
-        return channels
+        return  # Error: signalname not found in MDF file
 
 
 def data_scrub(filename, slow_signals, fast_signals, slow_freq=1, fast_freq=0.01):
@@ -84,140 +80,136 @@ def data_scrub(filename, slow_signals, fast_signals, slow_freq=1, fast_freq=0.01
         return gps_time, gps_points, map_settings
 
 
-def data_prep(filename, cfg, freq=0.01):
-    signals_normal = list(cfg.keys())
-    signals_raw = list(cfg.values())
-    with MDF(filename) as mdf_file:
-        mdf_reduce = mdf_file.filter(signals_raw)
-        mdf_output = mdf_reduce.resample(raster=freq)
-        # Rename <Raw Signal Names> to <Normalized Signal Names>
-        # counter = 0
-        # for group in mdf_output.groups:
-        #     for channel in group.channels[1::2]:  # Odd channels are "t"; Even channels are signals
-        #         # print(counter, channel.name, signals_normal[counter])
-        #         channel.name = signals_normal[counter]
-        #         counter += 1
-        signals = mdf_output.select(signals_raw, raw=True, dataframe=False, record_offset=0, copy_master=True)
+def read_mdf_data(filename, cfg=None, sample_rate=None):
+    with MDF(filename) as mdf0_file:
+        print('\nStarting to read MDF data...')
+        # Number of all channels in MDF
+        n_channels = sum(len(group.channels) for group in mdf0_file.groups)
+
+        # If configuration is given, use only selected channels
+        if cfg:
+            sel_channel_std = list(cfg.keys())
+            sel_channel_names = list(cfg.values())
+            mdf0_file = mdf0_file.filter(sel_channel_names)
+
+            # Rename signals to standard names
+            for i, group in enumerate(mdf0_file.groups):
+                for j, channel in enumerate(group.channels):
+                    try:
+                        id = sel_channel_names.index(channel.name)
+                        channel.name = sel_channel_std[id]
+                    except:
+                        continue
+            names = mdf0_file.channels_db
+            for i, std_name in enumerate(sel_channel_std):
+                names[std_name] = names[sel_channel_names[i]]
+                if std_name != sel_channel_names[i]:
+                    del names[sel_channel_names[i]]
+                print('Signal [%s] renamed to [%s].' % (sel_channel_names[i], std_name))
+
+        # Construct a list of 'data_block_addr' for attachment
+        att_addr = list()
+        for att in mdf0_file.attachments:
+            att_addr.append(att.address)
+
+        # Getting numbers of samples for each channel
+        n_samples = list()
+        channel_indexes = list()
+        channel_names = list()
+        for i, group in enumerate(mdf0_file.groups):
+            for j, channel in enumerate(group.channels):
+                n_samples_current = group.channel_group.cycles_nr
+                if channel.name == 't':  # May need adaptation for other MDF files
+                    continue
+                elif n_samples_current == 0:
+                    print('Signal [%s] skipped - empty.' % channel.name)
+                    continue
+                elif channel.data_block_addr in att_addr:  # channels with attachment will be later discarded
+                    print('Signal [%s] skipped - has attachment' % channel.name)
+                    continue
+                else:
+                    n_samples.append(n_samples_current)
+                    channel_indexes.append((i, j))
+                    channel_names.append(channel.name)
+        # print('Number of all channels: %s' % n_channels)
+        # print('Number of non-zero channels: %s' % len(n_samples))
+        # print('Number of different samples: %s' % len(set(n_samples)))
+
+        # This block is currently not used
+        # Non-zero minimum amount of samples
+        # indices = numpy.where(n_samples == numpy.min(n_samples[numpy.nonzero(n_samples)]))
+
+        # Looking for channels with maximum number of samples
+        indices = numpy.where(n_samples == numpy.max(n_samples))
+        # indices[0][0] is timestamp, indices[0][1] is actual channel
+        # channel_index in format: (group index, channel index) tuple
+        channel_index = channel_indexes[indices[0][1]]
+        # Select one channel that has the most samples hence longest timestamps
+        longest_channel_name = mdf0_file.groups[channel_index[0]].channels[channel_index[1]].name
+
+        # Extracting only non-zero channels from given MDF
+        mdf1_filter = mdf0_file.filter(channel_names)
+        mdf1_filter.configure(integer_interpolation=0)
+        raster_name = longest_channel_name
+
+        # Re-sample method: based on one channel name or a given sample rate
+        if sample_rate:
+            mdf2_resample = mdf1_filter.resample(sample_rate)
+        else:
+            mdf2_resample = mdf1_filter.resample(raster_name)
+
+        # Verification
+        # n_channels = sum(len(group.channels) for group in mdf2_resample.groups)
+        # n_samples = list()
+        # for group in mdf2_resample.groups:
+        #     for channel in group.channels:
+        #         n_samples.append(group.channel_group.cycles_nr)
+        # print('Number of all channels: %s' % n_channels)
+        # print('Number of non-zero channels: %s' % len(n_samples))
+        # print('Number of different samples: %s' % len(set(n_samples)))
+
+        # Working on channels
+        signals = mdf2_resample.select(channel_names, raw=True, dataframe=False, copy_master=True)
+        # Convert non-text signals to physical values
+        # Generate a list of Postgres data types
+        # Construct data block
+        sql_data_type = list()  # To be returned
+        data_block = numpy.empty((len(channel_names)+1, len(signals[0].timestamps)))
+        data_block[0] = signals[0].timestamps
         for i, sig in enumerate(signals):
             # print(sig.timestamps[0], '\t', sig.timestamps[numpy.size(sig.samples)-1], '\t', numpy.size(sig.samples))
             if sig.conversion and sig.conversion.conversion_type < 7:
                 signals[i] = sig.physical()
-        sql_dtype = data_type(signals)
-        # Generate timestamps
-        signal_t = signals[0].timestamps
-        return signals, sql_dtype, signals_normal, signals_raw, signal_t
+            data_type = str(type(signals[i].samples[0]))
+            sql_data_type.append(db_data_type(data_type))  # To be returned
+            data_block[i+1] = signals[i].samples
+
+        # Concatenate one time axis and all signal samples
+        # Method 1 - take rows, transpose in the end
+        # Method 2 - concatenate each row as column
+        data_block = numpy.transpose(data_block)  # To be returned
+        # Construct data block title series
+        sql_data_type.insert(0, 'NUMERIC(8, 3)')  # First column data type for timestamps
+        channel_names.insert(0, 'TS')
+        data_block_titles = channel_names
+        print('Finished reading MDF data.')
+
+    return data_block_titles, data_block, sql_data_type
 
 
-def data_prep_full(filename, sample_rate=0.01):
-
-    with MDF(filename) as mdf_file:
-
-        # Construct MDF object: exclude empty channels and channels with attachment
-        selected_signals = list()
-        for n, channel in enumerate(mdf_file.iter_channels()):
-            if numpy.size(channel.samples) == 0:
-                continue
-            # elif channel.attachment:
-            #     continue
-            else:
-                selected_signals.append(channel.name)
-        mdf_filter = mdf_file.filter(selected_signals)
-
-        mdf_resample = mdf_filter.resample(raster=sample_rate)
-
-        # Determine latest first timestamp
-        t_start = list()
-        t_end = list()
-        n_sample = list()
-        for n, channel in enumerate(mdf_resample.iter_channels()):
-            t_start.append(channel.timestamps[0])
-            t_end.append(channel.timestamps[-1])
-            n_sample.append(numpy.size(channel.samples))
-        t1_max, t1_min = numpy.amax(t_start), numpy.amin(t_start)
-        te_max, te_min = numpy.amax(t_end), numpy.amin(t_end)
-        s = '{:{f}}\t{:{f}}\t{:{f}}\t{:{f}}'
-        print(s.format(t1_max, t1_min, te_max, te_min, f='.4f'))
-        print(numpy.amax(n_sample), numpy.amin(n_sample))
-        print(len(set(n_sample)), ':\t', set(n_sample))
-
-        # Construct MDF object: starting from the latest first timestamp
-        mdf_align = mdf_filter.cut(start=t1_max, stop=te_min, whence=0, include_ends=True)
-
-        # Veryfication of aligned MDF object
-        t_start = list()
-        t_end = list()
-        n_sample = list()
-        for n, channel in enumerate(mdf_align.iter_channels()):
-            t_start.append(channel.timestamps[0])
-            t_end.append(channel.timestamps[-1])
-            n_sample.append(numpy.size(channel.samples))
-        t1_max, t1_min = numpy.amax(t_start), numpy.amin(t_start)
-        te_max, te_min = numpy.amax(t_end), numpy.amin(t_end)
-        s = '{:{f}}\t{:{f}}\t{:{f}}\t{:{f}}'
-        print(s.format(t1_max, t1_min, te_max, te_min, f='.4f'))
-        print(numpy.amax(n_sample), numpy.amin(n_sample))
-        print(len(set(n_sample)), ':\t', set(n_sample))
-    return
-
-
-def data_prep_full_proto(filename):
-    with MDF(filename) as mdf_file:
-        # Number of all channels in MDF
-        n_channels = sum(len(group.channels) for group in mdf_file.groups)
-
-        # Getting numbers of samples for each channel
-        counter = 0
-        n_samples = numpy.empty(n_channels, numpy.int)
-        i_channels = list()
-        for i, group in enumerate(mdf_file.groups):
-            for j, channel in enumerate(group.channels):
-                n_samples[counter] = group.channel_group.cycles_nr
-                i_channels.append((channel.name, i, j))
-                counter += 1
-        print(n_samples, len(n_samples), len(set(n_samples)))
-        # Non-zero minimum amount of samples
-        # indices = numpy.where(n_samples == numpy.min(n_samples[numpy.nonzero(n_samples)]))
-        # Looking for channels with maximum number of samples
-        indices = numpy.where(n_samples == numpy.max(n_samples))
-        # indices[0][0] is timestamp, indices[0][1] is actual channel
-        # signal_index in format: (channel name, group index, channel index) tuple
-        signal_index = i_channels[indices[0][1]]
-        # Select one channel that has the most samples hence longest timestamps
-        long_signal = mdf_file.select([signal_index])
-
-        # Generating resampled MDF
-        # Among 3 given options for raster, 2 will fail
-        raster_array = long_signal[0].timestamps  # this will fail
-        raster_name = signal_index[0]  # this will fail too
-        raster_float = 0.01  # only this works
-        mdf_file.configure(integer_interpolation=0)
-        mdf_resample = mdf_file.resample(raster_array)
-
-        # Verification
-        counter = 0
-        n_samples = numpy.empty(n_channels, numpy.int)
-        for group in mdf_resample.groups:
-            for channel in group.channels:
-                n_samples[counter] = group.channel_group.cycles_nr
-                counter += 1
-        print(n_samples, len(n_samples), len(set(n_samples)))
-    return
-
-
-def data_type(signals):
-    conv = {
-        "<class 'numpy.uint8'>":      'int8',
-        "<class 'numpy.uint16'>":     'int8',
-        "<class 'numpy.uint32'>":     'int8',
-        "<class 'numpy.float64'>":    'float8',
-        "<class 'numpy.bytes_'>":     'text',
+def db_data_type(data_type):
+    # Input is string of data type
+    # TODO: the data type conversion table needs optimization for database efficiency
+    conversion_table = {
+        "<class 'numpy.uint8'>":    'int8',
+        "<class 'numpy.uint16'>":   'int8',
+        "<class 'numpy.uint32'>":   'int8',
+        "<class 'numpy.int8'>":     'int8',
+        "<class 'numpy.int16'>":    'int8',
+        "<class 'numpy.float64'>":  'float8',
+        "<class 'numpy.bytes_'>":   'text',
     }
-    sql_dtype = list()
-    for signal in signals:
-        sig_dtype = str(type(signal.samples[0]))
-        sql_dtype.append(conv[sig_dtype])
-        # print(sig_dtype, conv[sig_dtype])
-    return sql_dtype
+    return conversion_table[data_type]
 
 
 def map_init(lat_s, lat_n, lng_w, lng_e, bound_factor):
@@ -246,12 +238,15 @@ def map_init(lat_s, lat_n, lng_w, lng_e, bound_factor):
 
 def main():
     filename = file_selector()
+    table_name = re.search(r"\/*.*\/(.*)\.*\.", filename).group(1)
+    config_name = 'config_' + table_name + '.json'
     file_version(filename)
     # list_all_signals(filename)
-    # cfg = read_config('config_signals.json')
-    # signals, dtype, norm, raw, t = data_prep(filename, cfg, freq=0.01)
-    data_prep_full(filename)
-    # data_prep_full_proto(filename)
+    cfg = read_config(config_name)
+    # read_mdf_data(filename, cfg=cfg)
+    read_mdf_data(filename)
+    # print(timeit(lambda: data_prep_freq(filename), number=10))
+    # print(timeit(lambda: data_prep_ch(filename), number=10))
     return
 
 
