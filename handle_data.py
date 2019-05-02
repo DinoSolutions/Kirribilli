@@ -3,9 +3,10 @@ import numpy
 
 import psycopg2
 import psycopg2.sql
+import psycopg2.extras
 # import psycopg2.extensions
 
-from parse import file_selector, file_version, read_config, data_prep
+from parse import file_selector, file_version, read_config, read_mdf_data
 
 
 def db_connection(db_cfg):
@@ -28,11 +29,13 @@ def db_disconnect(conn):
     return
 
 
-def db_create_table(conn, table):
+def db_create_table(conn, table, safe=None):
     cur = conn.cursor()
     if db_exists_table(conn, table):
         print('\nTable [%s] already exists.' % table)
-        db_drop_table(conn, table)
+        if not safe:
+            print('Existing table will be dropped.')
+            db_drop_table(conn, table)
     print('\nStarting to create table [%s]...' % table, end="")
     sql_cre_table = psycopg2.sql.SQL("CREATE TABLE {}();") \
         .format(psycopg2.sql.Identifier(table))
@@ -86,115 +89,98 @@ def db_exists_column(conn, table, col):
 
 
 def db_create_columns(conn, table, columns, types):
-    # Abort if can't find [table]
-    if not db_exists_table(conn, table):
-        print('Table [%s] doesn\'t exist. Creating of columns aborted.' % table)
-        return
-
-    # First column - Timestamps
-    print('\nStarting to add primary column [t]...', end="")
-    cur = conn.cursor()
-    sql_add_timestamps = psycopg2.sql.SQL("""
-        ALTER TABLE {} 
-        ADD COLUMN IF NOT EXISTS "t" NUMERIC(8,3);""") \
-        .format(psycopg2.sql.Identifier(table))  # 86400.000 seconds is 24-hour long measurement
-    try:
-        cur.execute(sql_add_timestamps)
-        cur.close()
-        conn.commit()
-        print('Done')
-    except Exception as e:
-        print('\nError occurred when adding primary column [t].\n%s' % e)
-
-    # Rest of data columns
     print('\nStarting to add data columns...')
-    for i, type_name in enumerate(types):
-        cur = conn.cursor()
-        sql_add_column = psycopg2.sql.SQL("""
-            ALTER TABLE {}
-            ADD COLUMN IF NOT EXISTS {} {} ;""") \
+    cur = conn.cursor()
+    # Hard code first column for timestamps
+    sql_add_column = psycopg2.sql.SQL("""ALTER TABLE {} ADD COLUMN IF NOT EXISTS "TS" NUMERIC(8, 3) PRIMARY KEY;""") \
+        .format(psycopg2.sql.Identifier(table))
+    cur.execute(sql_add_column)
+    print('Timestamps column [TS] added.')
+    # Rest of data columns
+    for i in range(1, len(types)):
+        sql_add_column = psycopg2.sql.SQL("""ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {} ;""") \
             .format(psycopg2.sql.Identifier(table),
                     psycopg2.sql.Identifier(columns[i]),
-                    psycopg2.sql.Identifier(type_name))
+                    psycopg2.sql.Identifier(types[i]))
         try:
             cur.execute(sql_add_column)
-            cur.close()
-            conn.commit()
-            print('Data column [%s] added or already exists.' % columns[i])
+            print('Data column [%s] added.' % columns[i])
         except Exception as e:
             print('Error occurred when adding data column [%s].\n%s' % (columns[i], e))
+    cur.close()
+    conn.commit()
     return
 
 
-def db_save_data(conn, table, columns, timestamps, data):
-
-    # Construct timestamp column
-    print('\nStarting to build timestamps...', end="")
+def db_save_data(conn, table, columns, data):
+    print('\nStarting to save signal data...', end="")
     cur = conn.cursor()
-    sql_save_timestamps = psycopg2.sql.SQL("""
-        INSERT INTO {} ("t")
-        SELECT unnest( %s ) ;""") \
+    sql_save_data = psycopg2.sql.SQL("INSERT INTO {} VALUES %s ;") \
         .format(psycopg2.sql.Identifier(table))
-    try:
-        cur.execute(sql_save_timestamps, (numpy.ndarray.tolist(timestamps),))
-        cur.close()
-        conn.commit()
-        print('Done')
-    except Exception as e:
-        print('\nError occurred when building timestamps.\n%s' % e)
-
-    # TODO: function to pass signals as columns to the table
-    print('\nStarting to save signal values...', end="")
-    for i, sig in enumerate(data):
-        cur = conn.cursor()
-        col_name = columns[i]
-        sql_save_data = psycopg2.sql.SQL("""
-            INSERT INTO {} ({}) 
-            SELECT unnest( %s ) ;""") \
-            .format(psycopg2.sql.Identifier(table),
-                    psycopg2.sql.Identifier(col_name))
-        cur.execute(sql_save_data, (numpy.ndarray.tolist(sig.samples),))
-        cur.close()
-        conn.commit()
+    sql_template = '(' + ', '.join(['%s'] * len(columns)) + ')'
+    psycopg2.extras.execute_values(cur, sql_save_data, data, sql_template)
+    cur.close()
+    conn.commit()
     print('Done')
     return
 
 
-def db_data_prep(timestamps, signals):
-    # TODO: unfinished, don't run
-    data_merge = numpy.empty((0, numpy.size(timestamps)), float)
-    data_merge = numpy.append(data_merge, [timestamps], axis=0)
-    for sig in signals:
-        data_merge = numpy.append(data_merge, [sig.samples], axis=0)
-    data_transpose = numpy.transpose(data_merge)
-    print(data_transpose)
-    return data_transpose
+def db_save_data_old(conn, table, columns, data):
+    # This function is depreciated due to low performance
+    print('\nStarting to save signal data...', end="")
+    cur = conn.cursor()
+    for i in range(len(data)):
+        sql_save_data = psycopg2.sql.SQL("INSERT INTO {} VALUES ({}) ;") \
+            .format(psycopg2.sql.Identifier(table),
+                    psycopg2.sql.SQL(', ').join(psycopg2.sql.Placeholder() * len(columns)))
+        cur.execute(sql_save_data, data[i])
+    cur.close()
+    conn.commit()
+    print('Done')
+    return
 
 
-def main():
+def db_process_file(filename, table=None, filter=None):
     print('\nData importing process started...')
-    filename = file_selector()
-    tablename = re.search(r"\/*.*\/(.*)\.*\.", filename).group(1)
+    if table:
+        table_name = table
+    else:
+        table_name = re.search(r"\/*.*\/(.*)\.*\.", filename).group(1)
+
+    config_name = 'config_' + table_name + '.json'
+
     print('Input MDF file version: %s' % file_version(filename))
 
     print('\nLoading environment configurations...')
     cfg_env = read_config('config_env.json')
 
-    print('\nLoading signal configurations...')
-    cfg_signals = read_config('config_'+tablename+'.json')
+    if filter == 'Yes':
+        print('\nLoading signal configurations...')
+        cfg_signals = read_config(config_name)
+    else:
+        cfg_signals = None
 
-    print('\nReading MDF file...', end="")
-    signals, types, norm, raw, t = data_prep(filename, cfg_signals, freq=0.01)
-    print('Done')
+    data_block_titles, data_block, sql_data_type = read_mdf_data(filename, cfg_signals)
 
-    #db_data_prep(t, signals)
+    try:
+        conn = db_connection(cfg_env)
+        db_create_table(conn, table_name)
+        db_create_columns(conn, table_name, data_block_titles, sql_data_type)
+        db_save_data(conn, table_name, data_block_titles, data_block)
+        db_disconnect(conn)
+        print('\nData importing process finished.')
+    except Exception as e:
+        print('\nException occurred during data importing process.\n%s' % e)
+    return
 
-    conn = db_connection(cfg_env)
-    db_create_table(conn, tablename)
-    db_create_columns(conn, tablename, norm, types)
-    db_save_data(conn, tablename, norm, t, signals)
-    db_disconnect(conn)
 
+def main():
+    filenames = file_selector()
+    if len(filenames) == 0:
+        print('No input files found.')
+        return
+    for filename in filenames:
+        db_process_file(filename)
     return
 
 
