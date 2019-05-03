@@ -1,10 +1,9 @@
 import re
-import numpy
+import time
 
 import psycopg2
 import psycopg2.sql
 import psycopg2.extras
-# import psycopg2.extensions
 
 from backend_file_functions import file_selector, file_version, read_config, read_mdf_data
 
@@ -89,26 +88,27 @@ def db_exists_column(conn, table, col):
 
 
 def db_create_columns(conn, table, columns, types):
-    print('\nStarting to add data columns...')
+    print('\nStarting to add data columns...', end="")
     cur = conn.cursor()
     # Hard code first column for timestamps
     sql_add_column = psycopg2.sql.SQL("""ALTER TABLE {} ADD COLUMN IF NOT EXISTS "TS" NUMERIC(8, 3) PRIMARY KEY;""") \
         .format(psycopg2.sql.Identifier(table))
     cur.execute(sql_add_column)
-    print('Timestamps column [TS] added.')
+    # print('Timestamps column [TS] added.')
     # Rest of data columns
-    for i in range(1, len(types)):
-        sql_add_column = psycopg2.sql.SQL("""ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {} ;""") \
+    for i in range(1, len(columns)):
+        sql_add_column = psycopg2.sql.SQL("""ALTER TABLE {} ADD COLUMN {} {} ;""") \
             .format(psycopg2.sql.Identifier(table),
                     psycopg2.sql.Identifier(columns[i]),
                     psycopg2.sql.Identifier(types[i]))
         try:
             cur.execute(sql_add_column)
-            print('Data column [%s] added.' % columns[i])
+            # print('Data column [%s] added.' % columns[i])
         except Exception as e:
             print('Error occurred when adding data column [%s].\n%s' % (columns[i], e))
     cur.close()
     conn.commit()
+    print('Done')
     return
 
 
@@ -140,27 +140,34 @@ def db_save_data_old(conn, table, columns, data):
     return
 
 
-def db_process_file(filename, table=None, filter=None):
+def db_process_file(pathname, table=None, use_cfg=None):
+    t_start = time.time()
     print('\nData importing process started...')
+    path = re.search(r"\/*.*\/", pathname).group(0)
+
     if table:
         table_name = table
     else:
-        table_name = re.search(r"\/*.*\/(.*)\.*\.", filename).group(1)
+        table_name = re.search(r"\/*.*\/(.*)\.*\.", pathname).group(1)
 
     config_name = 'config_' + table_name + '.json'
+    config_path = path + config_name
 
-    print('Input MDF file version: %s' % file_version(filename))
+    print('Input MDF file name: %s' % pathname)
+    print('Input MDF file version: %s' % file_version(pathname))
 
-    print('\nLoading environment configurations...')
+    print('\nLoading environment configurations...', end="")
     cfg_env = read_config('config_env.json')
+    print('Done')
 
-    if filter == 'Yes':
-        print('\nLoading signal configurations...')
-        cfg_signals = read_config(config_name)
+    if use_cfg == 1:
+        print('\nLoading signal configurations...', end="")
+        cfg_signals = read_config(config_path)
+        print('Done')
     else:
         cfg_signals = None
 
-    data_block_titles, data_block, sql_data_type = read_mdf_data(filename, cfg_signals)
+    data_block_titles, data_block, sql_data_type = read_mdf_data(pathname, cfg_signals)
 
     try:
         conn = db_connection(cfg_env)
@@ -168,19 +175,19 @@ def db_process_file(filename, table=None, filter=None):
         db_create_columns(conn, table_name, data_block_titles, sql_data_type)
         db_save_data(conn, table_name, data_block_titles, data_block)
         db_disconnect(conn)
-        print('\nData importing process finished.')
+        print('\nData importing process finished in %.3f seconds.' % (time.time() - t_start))
     except Exception as e:
         print('\nException occurred during data importing process.\n%s' % e)
     return
 
 
 def main():
-    filenames = file_selector()
-    if len(filenames) == 0:
+    pathnames = file_selector()
+    if len(pathnames) == 0:
         print('No input files found.')
         return
-    for filename in filenames:
-        db_process_file(filename)
+    for pathname in pathnames:
+        db_process_file(pathname, use_cfg=0)
     return
 
 
