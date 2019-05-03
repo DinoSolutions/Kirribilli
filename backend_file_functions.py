@@ -4,12 +4,15 @@ import json
 
 from asammdf import MDF, Signal
 
-from prototype import TEST_FILES
-
 
 def file_selector():
-    filename = TEST_FILES[0]
-    return [filename]
+    from glob import glob
+    types = ('*.MF4', '*.MDF')
+    path = 'data/'
+    pathnames = list()
+    for type in types:
+        pathnames.extend(glob(path + type))
+    return pathnames
 
 
 def file_version(pathname):
@@ -31,9 +34,9 @@ def read_config(config_path):
 
 def write_config(pathname):
     print('\nGenerating a default signal configuration file...')
-    path = re.search(r"/*.*/", pathname).group(0)
-    # filename = re.search(r"/*.*/(.*)", pathname).group(1)
-    table_name = re.search(r"/*.*/(.*)\.*\.", pathname).group(1)
+    path = re.search(r"[\\/]*.*[\\/]", pathname).group(0)
+    # filename = re.search(r"[\\/]*.*[\\/](.*)", pathname).group(1)
+    table_name = re.search(r"[\\/]*.*[\\/](.*)\.*\.", pathname).group(1)
     config_name = 'config_' + table_name + '.json'
     config_path = path + config_name
     config = dict()
@@ -88,7 +91,8 @@ def read_mdf_data(filename, cfg_signals=None, sample_rate=None):
         names = list(mdf0_file.channels_db.keys())
         indexes = list(mdf0_file.channels_db.values())
         for i, index in enumerate(indexes):
-            if (len(index) > 1) and (names[i] != 't'):  # May need adaptation to other types of MDF
+            # May need adaptation to other types of MDF
+            if (len(index) > 1) and (names[i] != 't' and names[i] != 'time'):
                 old_name = names[i]
                 for j in range(1, len(index)):
                     new_name = old_name + '_' + str(j)
@@ -196,6 +200,7 @@ def db_data_type(data_type):
         "<class 'numpy.uint32'>":   'int8',     # 0 to 4924967295   # -9223372036854775808 to 9223372036854775807
         "<class 'numpy.int8'>":     'int2',     # -128 to 127
         "<class 'numpy.int16'>":    'int2',     # -32768 to 32767
+        "<class 'numpy.int32'>":    'int4',     # -2147483648 to 2147483647
         "<class 'numpy.float64'>":  'float8',   # double
         "<class 'numpy.bytes_'>":   'text',
     }
@@ -203,9 +208,9 @@ def db_data_type(data_type):
 
 
 def gis_get_cord(pathname, sample_rate=0.01):
-    path = re.search(r"/*.*/", pathname).group(0)
-    # filename = re.search(r"/*.*/(.*)", pathname).group(1)
-    table_name = re.search(r"/*.*/(.*)\.*\.", pathname).group(1)
+    path = re.search(r"[\\/]*.*[\\/]", pathname).group(0)
+    # filename = re.search(r"[\\/]*.*[\\/](.*)", pathname).group(1)
+    table_name = re.search(r"[\\/]*.*[\\/](.*)\.*\.", pathname).group(1)
     config_path = path + 'config_' + table_name + '.json'
     try:
         cfg = read_config(config_path)
@@ -233,8 +238,8 @@ def gis_export_geojson(pathname):
     # geojson file will be written in the same folder
     import geojson
     gps_cords = gis_get_cord(pathname)
-    path = re.search(r"/*.*/", pathname).group(0)
-    core_name = re.search(r"/*.*/(.*)\.*\.", pathname).group(1)
+    path = re.search(r"[\\/]*.*[\\/]", pathname).group(0)
+    core_name = re.search(r"[\\/]*.*[\\/](.*)\.*\.", pathname).group(1)
     geojson_name = core_name + '.geojson'
     geojson_path = path + geojson_name
     track = geojson.LineString(gps_cords)
