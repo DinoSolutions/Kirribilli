@@ -5,7 +5,9 @@
 data/
 
 # Config file may contain passwords
-config*.*
+config_env.json
+# Test file
+prototype.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
