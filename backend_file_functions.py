@@ -1,94 +1,72 @@
-from os import listdir
-from os.path import isfile, join
 import re
 import numpy
 import json
-from collections import namedtuple
 
 from asammdf import MDF, Signal
 
 from prototype import TEST_FILES
 
 
-def read_config(config):
-    try:
-        with open(config) as config_file:
-            cfg = json.load(config_file)
-            print('Config file [%s] loaded.' % config)
-    except FileNotFoundError:
-        print('Config file [%s] does not exist' % config)
-        return
-    return cfg
-
-
 def file_selector():
     filename = TEST_FILES[0]
-    print('Input Filename: %s' % filename)
     return [filename]
 
 
-def file_version(filename):
-    with MDF(filename) as mdf_file:
+def file_version(pathname):
+    with MDF(pathname) as mdf_file:
         # print('\nMDF Version: %s' % mdf_file.version)
         return mdf_file.version
 
 
-def list_all_signals(filename):
-    with MDF(filename) as mdf_file:
+def read_config(config_path):
+    try:
+        with open(config_path) as config_file:
+            cfg = json.load(config_file)
+            # print('Config file [%s] loaded.' % config_path)
+    except FileNotFoundError:
+        print('Config file [%s] does not exist' % config_path)
+        return
+    return cfg
+
+
+def write_config(pathname):
+    print('\nGenerating a default signal configuration file...')
+    path = re.search(r"/*.*/", pathname).group(0)
+    # filename = re.search(r"/*.*/(.*)", pathname).group(1)
+    table_name = re.search(r"/*.*/(.*)\.*\.", pathname).group(1)
+    config_name = 'config_' + table_name + '.json'
+    config_path = path + config_name
+    config = dict()
+    with MDF(pathname) as mdf_file:
         counter = 0
-        for channel in mdf_file.iter_channels():
-            print(str(counter) + '\t' + channel.name)
-            counter += 1
-        print('\nTotal Number of Signals: ' + str(counter) + '\n')
+        suffix = 1
+        for group in mdf_file.groups:
+            for channel in group.channels:
+                if channel.name != 't':  # May need adaption for other MDF files
+                    if channel.name in config:
+                        channel.name += '_' + str(suffix)
+                        suffix += 1
+                    config[channel.name] = channel.name
+                    counter += 1
+        print('Total Number of Signals: %s' % counter)
+    with open(config_path, 'w') as fp_config:
+        json.dump(config, fp_config, sort_keys=False, indent=4, ensure_ascii=False)
+        print('Signal configuration file [%s] generated.' % config_name)
     return counter
 
 
-def get_signal_index(filename, signal_name):
-    with MDF(filename) as mdf_file:
-        counter = 0
-        for channel in mdf_file.iter_channels():
-            if channel.name == signal_name:
-                return counter
-            else:
-                counter += 1
-        return  # Error: signalname not found in MDF file
-
-
-def data_scrub(filename, slow_signals, fast_signals, slow_freq=1, fast_freq=0.01):
-    with MDF(filename) as mdf_file:
-        mdf_reduce = mdf_file.filter(fast_signals)
-        mdf_fast = mdf_reduce.resample(fast_freq).select(fast_signals, raw=False, dataframe=False)
-        mdf_slow = mdf_reduce.resample(slow_freq).select(slow_signals, raw=False, dataframe=False)
-        # Construct GPS coordinates
-        lat_index = slow_signals.index('GPS_Lat')
-        lng_index = slow_signals.index('GPS_Lon')
-        speed_index = slow_signals.index('GPS_Velocity')
-        lat_value = mdf_slow[lat_index].samples
-        lng_value = mdf_slow[lng_index].samples
-        # gps_points = numpy.array([lng_value, lat_value]).transpose()  # for GeoJSON: [longitude, latitude]
-        gps_points = list(zip(lng_value, lat_value))
-        gps_time = numpy.array(mdf_slow[speed_index].timestamps)
-        lat1 = numpy.min(mdf_slow[lat_index].samples)
-        lat2 = numpy.max(mdf_slow[lat_index].samples)
-        lng1 = numpy.min(mdf_slow[lng_index].samples)
-        lng2 = numpy.max(mdf_slow[lng_index].samples)
-        clat, clng, zoom = map_init(lat2, lat1, lng2, lng1, 1.05)
-        # gps_boundaries = numpy.array([bound_s, bound_n, bound_w, bound_e, lat_c, lng_c])
-        Boundaries = namedtuple('Boundaries', ['clat', 'clng', 'zoom'])
-        map_settings = Boundaries(clat=clat, clng=clng, zoom=zoom)
-        return gps_time, gps_points, map_settings
-
-
-def read_mdf_data(filename, cfg=None, sample_rate=None):
+def read_mdf_data(filename, cfg_signals=None, sample_rate=None):
     with MDF(filename) as mdf0_file:
         print('\nStarting to read MDF data...')
         # Number of all channels in MDF
-        n_channels = sum(len(group.channels) for group in mdf0_file.groups)
+        # n_channels = sum(len(group.channels) for group in mdf0_file.groups)
 
         # If configuration is given, use only selected channels
-        if cfg:
-            sel_channel_std = list(cfg.keys())
-            sel_channel_names = list(cfg.values())
+        # cfg_signals is a dict where keys = std ch names; vals = raw ch names
+        # len(cfg_signals) can be less than or equal to the total number of channels
+        if cfg_signals is not None:
+            sel_channel_std = list(cfg_signals.keys())
+            sel_channel_names = list(cfg_signals.values())
             mdf0_file = mdf0_file.filter(sel_channel_names)
 
             # Rename signals to standard names
@@ -105,6 +83,20 @@ def read_mdf_data(filename, cfg=None, sample_rate=None):
                 if std_name != sel_channel_names[i]:
                     del names[sel_channel_names[i]]
                 print('Signal [%s] renamed to [%s].' % (sel_channel_names[i], std_name))
+
+        # Handle duplicated signal names
+        names = list(mdf0_file.channels_db.keys())
+        indexes = list(mdf0_file.channels_db.values())
+        for i, index in enumerate(indexes):
+            if (len(index) > 1) and (names[i] != 't'):  # May need adaptation to other types of MDF
+                old_name = names[i]
+                for j in range(1, len(index)):
+                    new_name = old_name + '_' + str(j)
+                    new_name_index = mdf0_file.channels_db[old_name][j]
+                    gp, ch = new_name_index
+                    mdf0_file.channels_db[new_name] = [new_name_index]
+                    mdf0_file.groups[gp].channels[ch].name = new_name
+                    mdf0_file.channels_db[old_name] = [index[0]]
 
         # Construct a list of 'data_block_addr' for attachment
         att_addr = list()
@@ -200,50 +192,103 @@ def db_data_type(data_type):
     # Input is string of data type
     # TODO: the data type conversion table needs optimization for database efficiency
     conversion_table = {
-        "<class 'numpy.uint8'>":    'int8',
-        "<class 'numpy.uint16'>":   'int8',
+        "<class 'numpy.uint8'>":    'int2',
+        "<class 'numpy.uint16'>":   'int4',
         "<class 'numpy.uint32'>":   'int8',
-        "<class 'numpy.int8'>":     'int8',
-        "<class 'numpy.int16'>":    'int8',
+        "<class 'numpy.int8'>":     'int2',
+        "<class 'numpy.int16'>":    'int2',
         "<class 'numpy.float64'>":  'float8',
         "<class 'numpy.bytes_'>":   'text',
     }
     return conversion_table[data_type]
 
 
-def map_init(lat_s, lat_n, lng_w, lng_e, bound_factor):
+def gis_get_cord(pathname, sample_rate=0.01):
+    path = re.search(r"/*.*/", pathname).group(0)
+    # filename = re.search(r"/*.*/(.*)", pathname).group(1)
+    table_name = re.search(r"/*.*/(.*)\.*\.", pathname).group(1)
+    config_path = path + 'config_' + table_name + '.json'
+    try:
+        cfg = read_config(config_path)
+        sig_name_lat = cfg['GPS_Lat']
+        sig_name_lon = cfg['GPS_Lon']
+    except Exception:
+        print('Signal configuration does not exist. Aborted.')
+        return
+    with MDF(pathname) as mdf0_file:
+        mdf1_filter = mdf0_file.filter([sig_name_lat, sig_name_lon])
+        if sample_rate:
+            mdf2_resample = mdf1_filter.resample(raster=sample_rate)
+            signals = mdf2_resample.select([sig_name_lat, sig_name_lon])
+        else:
+            signals = mdf1_filter.select([sig_name_lat, sig_name_lon])
+        lat = signals[0].samples
+        lon = signals[1].samples
+        # gps_points = numpy.array([lng_value, lat_value]).transpose()  # for GeoJSON: [longitude, latitude]
+        gps_cords = list(zip(lon, lat))
+        return gps_cords
+
+
+def gis_export_geojson(pathname):
+    # pathname is the path to the MDF file
+    # geojson file will be written in the same folder
+    import geojson
+    gps_cords = gis_get_cord(pathname)
+    path = re.search(r"/*.*/", pathname).group(0)
+    core_name = re.search(r"/*.*/(.*)\.*\.", pathname).group(1)
+    geojson_name = core_name + '.geojson'
+    geojson_path = path + geojson_name
+    track = geojson.LineString(gps_cords)
+    features = list()
+    features.append(geojson.Feature(geometry=track, properties={"Track Name": "Sample Track"}))
+    feature_collection = geojson.FeatureCollection(features)
+    with open(geojson_path, mode='w') as output:
+        geojson.dump(feature_collection, output, indent=0)
+    return
+
+
+def gis_map_init(gps_cords, bound_factor=1.15):
     import math
-    clat = (lat_n + lat_s) / 2
-    clng = (lng_e + lng_w) / 2
-    dlat = math.radians(lat_n - lat_s)
-    dlng = math.radians(lng_e - lng_w)
+    # gps_cords is a list of (longitude, latitude) tuples
+    # OSM Zoom Levels Information:
+    # https://wiki.openstreetmap.org/wiki/Zoom_levels
+    lon, lat = numpy.transpose(gps_cords)
+    lat_n = numpy.max(lat)
+    lat_s = numpy.min(lat)
+    lon_e = numpy.max(lon)
+    lon_w = numpy.min(lon)
+    lon_center = (lon_e + lon_w) / 2  # function return
+    lat_center = (lat_n + lat_s) / 2  # function return
 
     # Haversine formula:
-    # Calculate the great-circle distance between two points
-    a = math.sin(dlat / 2) ** 2 + math.cos(lat_s) * math.cos(lat_n) * math.sin(dlng / 2) ** 2
+    # https://en.wikipedia.org/wiki/Haversine_formula
+    # https://www.movable-type.co.uk/scripts/latlong.html
+    R = 6371  # mean radius of earth in km
+    phi1 = math.radians(lat_s)
+    phi2 = math.radians(lat_n)
+    phi = math.radians(lat_n - lat_s)
+    delta = math.radians(lon_e - lon_w)
+    a = math.sin(phi/2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta/2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-    # Mean radius of earth in km: 6371
-    great_circle_distance = c * 6371
+    great_circle_distance = R * c
 
     # Minimum map tile size 256 x 256 pixels
     zoom = math.floor(8 - math.log(bound_factor * great_circle_distance / math.sqrt(2 * 256 * 256))) / math.log(2)
-
     # Convert zoom level from float to integer
     zoom = int(zoom)
-    # print(great_circle_distance, clat, clng, zoom)
-    return clat, clng, zoom
+    return lon_center, lat_center, zoom
 
 
 def main():
-    filename = file_selector()
-    table_name = re.search(r"\/*.*\/(.*)\.*\.", filename).group(1)
-    config_name = 'config_' + table_name + '.json'
-    file_version(filename)
-    # list_all_signals(filename)
-    cfg = read_config(config_name)
-    # read_mdf_data(filename, cfg=cfg)
-    read_mdf_data(filename)
+    pathname = file_selector()
+    # file_version(pathname)
+    # cfg = read_config(pathname)
+    # read_mdf_data(pathname, use_cfg=1)
+    # read_mdf_data(pathname)
+    # write_config(pathname[0])
+    gps_cords = gis_get_cord(pathname[0])
+    # gis_export_geojson(pathname[0])
+    gis_map_init(gps_cords)
     # print(timeit(lambda: data_prep_freq(filename), number=10))
     # print(timeit(lambda: data_prep_ch(filename), number=10))
     return
