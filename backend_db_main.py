@@ -143,12 +143,12 @@ def db_save_data_old(conn, table, columns, data):
 def db_process_file(pathname, table=None, use_cfg=None):
     t_start = time.time()
     print('\nData importing process started...')
-    path = re.search(r"\/*.*\/", pathname).group(0)
+    path = re.search(r"\\*.*\\", pathname).group(0)
 
     if table:
         table_name = table
     else:
-        table_name = re.search(r"\/*.*\/(.*)\.*\.", pathname).group(1)
+        table_name = re.search(r"\\*.*\\(.*)\.*\.", pathname).group(1)
 
     config_name = 'config_' + table_name + '.json'
     config_path = path + config_name
