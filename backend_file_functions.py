@@ -190,14 +190,13 @@ def read_mdf_data(filename, cfg_signals=None, sample_rate=None):
 
 def db_data_type(data_type):
     # Input is string of data type
-    # TODO: the data type conversion table needs optimization for database efficiency
     conversion_table = {
-        "<class 'numpy.uint8'>":    'int2',
-        "<class 'numpy.uint16'>":   'int4',
-        "<class 'numpy.uint32'>":   'int8',
-        "<class 'numpy.int8'>":     'int2',
-        "<class 'numpy.int16'>":    'int2',
-        "<class 'numpy.float64'>":  'float8',
+        "<class 'numpy.uint8'>":    'int2',     # 0 to 255          # -32768 to 32767
+        "<class 'numpy.uint16'>":   'int4',     # 0 to 65535        # -2147483648 to 2147483647
+        "<class 'numpy.uint32'>":   'int8',     # 0 to 4924967295   # -9223372036854775808 to 9223372036854775807
+        "<class 'numpy.int8'>":     'int2',     # -128 to 127
+        "<class 'numpy.int16'>":    'int2',     # -32768 to 32767
+        "<class 'numpy.float64'>":  'float8',   # double
         "<class 'numpy.bytes_'>":   'text',
     }
     return conversion_table[data_type]
