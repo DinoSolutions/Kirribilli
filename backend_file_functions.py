@@ -284,13 +284,13 @@ def gis_map_init(gps_cords, bound_factor=1.15):
 
 
 def main():
-    pathname = file_selector()
+    pathnames = file_selector()
     # file_version(pathname)
     # cfg = read_config(pathname)
     # read_mdf_data(pathname, use_cfg=1)
     # read_mdf_data(pathname)
     # write_config(pathname[0])
-    gps_cords = gis_get_cord(pathname[0])
+    gps_cords = gis_get_cord(pathnames[0])
     # gis_export_geojson(pathname[0])
     gis_map_init(gps_cords)
     # print(timeit(lambda: data_prep_freq(filename), number=10))
