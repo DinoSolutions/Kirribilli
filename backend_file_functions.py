@@ -1,7 +1,8 @@
 import re
-import numpy
 import json
+import time
 
+import numpy
 from asammdf import MDF, Signal
 
 
@@ -214,6 +215,7 @@ def gis_get_cord(pathname, sample_rate=0.01):
     config_path = path + 'config_' + table_name + '.json'
     try:
         cfg = read_config(config_path)
+        # lat lon signals are hardcoded and will be looked for in config files
         sig_name_lat = cfg['GPS_Lat']
         sig_name_lon = cfg['GPS_Lon']
     except Exception:
@@ -248,6 +250,7 @@ def gis_export_geojson(pathname):
     feature_collection = geojson.FeatureCollection(features)
     with open(geojson_path, mode='w') as output:
         geojson.dump(feature_collection, output, indent=0)
+    print('Exported file [%s].' % geojson_path)
     return
 
 
@@ -284,17 +287,18 @@ def gis_map_init(gps_cords, bound_factor=1.15):
 
 
 def main():
+    t_start = time.time()
     pathnames = file_selector()
-    # file_version(pathname)
-    # cfg = read_config(pathname)
-    # read_mdf_data(pathname, use_cfg=1)
-    # read_mdf_data(pathname)
-    # write_config(pathname[0])
-    gps_cords = gis_get_cord(pathnames[0])
-    # gis_export_geojson(pathname[0])
-    gis_map_init(gps_cords)
-    # print(timeit(lambda: data_prep_freq(filename), number=10))
-    # print(timeit(lambda: data_prep_ch(filename), number=10))
+    for p in pathnames:
+        # file_version(p)
+        # cfg = read_config(p)
+        # read_mdf_data(p, use_cfg=1)
+        # read_mdf_data(p)
+        # write_config(p)
+        gis_export_geojson(p)
+        # gps_cords = gis_get_cord(p)
+        # gis_map_init(gps_cords)
+    print('\n\n=== Executed in %.3f seconds ===' % (time.time() - t_start))
     return
 
 
