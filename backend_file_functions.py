@@ -8,11 +8,11 @@ from asammdf import MDF, Signal
 
 def file_selector():
     from glob import glob
-    types = ('*.MF4', '*.MDF')
+    file_types = ('*.MF4', '*.MDF')
     path = 'data/'
     pathnames = list()
-    for type in types:
-        pathnames.extend(glob(path + type))
+    for file_type in file_types:
+        pathnames.extend(glob(path + file_type))
     return pathnames
 
 
@@ -48,10 +48,13 @@ def write_config(pathname):
             for channel in group.channels:
                 if channel.name != 't':  # May need adaption for other MDF files
                     if channel.name in config:
-                        channel.name += '_' + str(suffix)
+                        old_name = channel.name
+                        channel.name += '_DUPE_' + str(suffix)
                         suffix += 1
-                    config[channel.name] = channel.name
-                    counter += 1
+                        config[channel.name] = old_name
+                    else:
+                        config[channel.name] = channel.name
+                        counter += 1
         print('Total Number of Signals: %s' % counter)
     with open(config_path, 'w') as fp_config:
         json.dump(config, fp_config, sort_keys=False, indent=4, ensure_ascii=False)
@@ -59,8 +62,8 @@ def write_config(pathname):
     return counter
 
 
-def read_mdf_data(filename, cfg_signals=None, sample_rate=None):
-    with MDF(filename) as mdf0_file:
+def read_mdf_data(pathname, cfg_signals=None, sample_rate=None, export_file=None):
+    with MDF(pathname) as mdf0_file:
         print('\nStarting to read MDF data...')
         # Number of all channels in MDF
         # n_channels = sum(len(group.channels) for group in mdf0_file.groups)
@@ -176,9 +179,34 @@ def read_mdf_data(filename, cfg_signals=None, sample_rate=None):
             # print(sig.timestamps[0], '\t', sig.timestamps[numpy.size(sig.samples)-1], '\t', numpy.size(sig.samples))
             if sig.conversion and sig.conversion.conversion_type < 7:
                 signals[i] = sig.physical()
+            else:
+                sig.conversion = None
+            sig.source = None
+            sig.comment = None
             data_type = str(type(signals[i].samples[0]))
             sql_data_type.append(db_data_type(data_type))  # To be returned
             data_block[i+1] = signals[i].samples
+
+        # Option to export as other file types
+        if export_file is not None:
+            path = re.search(r"[\\/]*.*[\\/]", pathname).group(0)
+            core_name = re.search(r"[\\/]*.*[\\/](.*)\.*\.", pathname).group(1)
+            with MDF(version='4.10') as mdf4:
+                mdf4.append(signals)
+                if export_file == 'mf4':
+                    mf4_path = path + core_name + '_Export.mf4'
+                    mdf4.save(mf4_path, overwrite=True)
+                    return
+                if export_file == 'csv':
+                    csv_path = path + core_name + '_Export.csv'
+                    mdf4.export(fmt='csv',
+                                filename=csv_path,
+                                single_time_base=True,
+                                raster=sample_rate,
+                                time_from_zero=True,
+                                empty_channels='skip',
+                                reduce_memory_usage=False)
+                    return
 
         # Concatenate one time axis and all signal samples
         # Method 1 - take rows, transpose in the end
@@ -286,18 +314,109 @@ def gis_map_init(gps_cords, bound_factor=1.15):
     return lon_center, lat_center, zoom
 
 
+def mdf_export_csv(pathname, use_cfg=None, sample_rate=0.01):
+    path = re.search(r"[\\/]*.*[\\/]", pathname).group(0)
+    core_name = re.search(r"[\\/]*.*[\\/](.*)\.*\.", pathname).group(1)
+    csv_name = core_name + '.csv'
+    csv_path = path + csv_name
+    config_path = path + 'config_' + core_name + '.json'
+    with MDF(pathname) as mdf0_file:
+        if use_cfg == 1:
+            cfg_signals = read_config(config_path)
+            sel_channel_std = list(cfg_signals.keys())
+            sel_channel_names = list(cfg_signals.values())
+            mdf0_file = mdf0_file.filter(sel_channel_names)
+
+            # Rename signals to standard names
+            for i, group in enumerate(mdf0_file.groups):
+                for j, channel in enumerate(group.channels):
+                    try:
+                        id = sel_channel_names.index(channel.name)
+                        channel.name = sel_channel_std[id]
+                    except:
+                        continue
+            names = mdf0_file.channels_db
+            for i, std_name in enumerate(sel_channel_std):
+                names[std_name] = names[sel_channel_names[i]]
+                if std_name != sel_channel_names[i]:
+                    del names[sel_channel_names[i]]
+
+            # Handle duplicated signal names
+            names = list(mdf0_file.channels_db.keys())
+            indexes = list(mdf0_file.channels_db.values())
+            for i, index in enumerate(indexes):
+                # May need adaptation to other types of MDF
+                if (len(index) > 1) and (names[i] != 't' and names[i] != 'time'):
+                    old_name = names[i]
+                    for j in range(1, len(index)):
+                        new_name = old_name + '_' + str(j)
+                        new_name_index = mdf0_file.channels_db[old_name][j]
+                        gp, ch = new_name_index
+                        mdf0_file.channels_db[new_name] = [new_name_index]
+                        mdf0_file.groups[gp].channels[ch].name = new_name
+                        mdf0_file.channels_db[old_name] = [index[0]]
+
+            # Construct a list of 'data_block_addr' for attachment
+            att_addr = list()
+            for att in mdf0_file.attachments:
+                att_addr.append(att.address)
+
+            # Construct channel name filter
+            channel_names = list()
+            for i, group in enumerate(mdf0_file.groups):
+                for j, channel in enumerate(group.channels):
+                    if channel.name == 't':  # May need adaptation for other MDF files
+                        continue
+                    elif channel.data_block_addr in att_addr:  # channels with attachment will be later discarded
+                        print('Signal [%s] skipped - has attachment' % channel.name)
+                        continue
+                    else:
+                        channel_names.append(channel.name)
+
+            # Extracting only non-zero channels from given MDF
+            mdf1_filter = mdf0_file.filter(channel_names)
+
+            try:
+                mdf1_filter.export(fmt='csv',
+                                   filename=csv_path,
+                                   single_time_base=True,
+                                   raster=sample_rate,
+                                   time_from_zero=True,
+                                   empty_channels='skip',
+                                   reduce_memory_usage=False)
+            except Exception as e:
+                print('Error!\n%s' % e)
+
+        else:
+            try:
+                mdf0_file.export(fmt='csv',
+                                 filename=csv_path,
+                                 single_time_base=True,
+                                 raster=sample_rate,
+                                 time_from_zero=True,
+                                 empty_channels='skip',
+                                 reduce_memory_usage=False)
+            except Exception as e:
+                print('Error!\n%s' % e)
+    return
+
+
 def main():
     t_start = time.time()
     pathnames = file_selector()
     for p in pathnames:
-        # file_version(p)
-        # cfg = read_config(p)
-        # read_mdf_data(p, use_cfg=1)
-        # read_mdf_data(p)
+        path = re.search(r"[\\/]*.*[\\/]", p).group(0)
+        core_name = re.search(r"[\\/]*.*[\\/](.*)\.*\.", p).group(1)
+        config_path = path + 'config_' + core_name + '.json'
+        file_version(p)
+        cfg_signals = read_config(config_path)
+        read_mdf_data(p, cfg_signals=cfg_signals)
+        # read_mdf_data(p, export_file='csv')
         # write_config(p)
-        gis_export_geojson(p)
+        # gis_export_geojson(p)
         # gps_cords = gis_get_cord(p)
         # gis_map_init(gps_cords)
+        # mdf_export_csv(p, use_cfg=0)
     print('\n\n=== Executed in %.3f seconds ===' % (time.time() - t_start))
     return
 
