@@ -230,6 +230,7 @@ def db_data_type(data_type):
         "<class 'numpy.int8'>":     'int2',     # -128 to 127
         "<class 'numpy.int16'>":    'int2',     # -32768 to 32767
         "<class 'numpy.int32'>":    'int4',     # -2147483648 to 2147483647
+        "<class 'numpy.int64'>":    'int8',     # range? This type is needed to adapt to certain MDF files.
         "<class 'numpy.float64'>":  'float8',   # double
         "<class 'numpy.bytes_'>":   'text',
     }
