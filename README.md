@@ -2,7 +2,7 @@
 
 <b>Prerequisites</b>
 
-Valid up to current development progress, new dependencies may be added.
+New dependencies may be added.
 
 ```
 pip install asammdf
@@ -11,3 +11,4 @@ pip install -I --no-deps https://github.com/pyqtgraph/pyqtgraph/archive/develop.
 pip install psutil
 ```
 
+Skip PyQt5 and pyqtgraph if GUI is not used.
