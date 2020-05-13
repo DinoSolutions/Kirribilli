@@ -1,6 +1,7 @@
 # Project Codename "Kirribilli"
 
 ### Introduction
+-----
 
 "Kirribilli" is a skeleton module to read numerical (and text in some cases) signals from raw MDF files, re-sample them to certain frequencies if required, and save them into a SQL database.
 
@@ -9,6 +10,7 @@ MDF is an efficient and high performance file format. Saving signals in database
 MDF v4.10 is tested. Theoretically the module should support v3.20 onwards.
 
 ### Prerequisites
+-----
 
 ##### 1. Python libraries needed for asammdf:
 
@@ -34,5 +36,6 @@ PostgreSQL (V10 is tested)
 [psycopg2 Documentation](https://www.psycopg.org/docs/)
 
 ### Feedback
+-----
 
 Feel free to create issues and/or PR to help improve.
